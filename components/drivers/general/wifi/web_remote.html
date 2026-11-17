@@ -1,0 +1,1714 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+  <link rel="icon" href="data:,">
+  <title>Tiny Drone</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --left-stick-width: clamp(50px, 8vw, 72px);
+      --left-stick-height: min(65dvh, calc(100dvh - 140px), 320px);
+      --right-stick-size: min(30vw, calc(100dvh - 130px), 340px);
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+    body {
+      background: #101317;
+      color: #f6f7f9;
+      font: 13px system-ui, -apple-system, "Segoe UI", sans-serif;
+      touch-action: none;
+      user-select: none;
+    }
+    #app {
+      position: relative; width: 100%; height: 100dvh; min-height: 280px;
+      display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 12px;
+      padding: max(10px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+        max(10px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+    }
+    #landscapeGate {
+      position: fixed;
+      z-index: 20;
+      inset: 0;
+      display: none;
+      place-items: center;
+      padding: 28px;
+      background: #101317;
+      text-align: center;
+      touch-action: manipulation;
+    }
+    .gate-card { display: grid; justify-items: center; gap: 18px; }
+    .phone-icon {
+      width: 94px;
+      height: 54px;
+      border: 4px solid #f6f7f9;
+      border-radius: 10px;
+      box-shadow: 0 0 0 1px rgba(255,255,255,.12);
+    }
+    #enterLandscape {
+      min-height: 48px;
+      padding: 0 24px;
+      border: 0;
+      border-radius: 25px;
+      background: #36c86b;
+      color: white;
+      font: 650 16px system-ui, sans-serif;
+    }
+    #landscapeHint { margin: 0; color: #aeb7c1; }
+    .video-frame {
+      position: relative;
+      width: min(100%, calc((100dvh - 194px) * 4 / 3), 480px);
+      aspect-ratio: 4 / 3;
+      flex: none;
+    }
+    #video {
+      width: 100%; height: 100%;
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+      border: 1px solid rgba(255,255,255,.2);
+      border-radius: 8px;
+      box-shadow: 0 8px 28px rgba(0,0,0,.35);
+      background: radial-gradient(circle at center, #28313a, #101317 68%);
+      color: #8e99a5;
+    }
+    #video img {
+      display: block;
+      width: 100%;
+      height: 100%;
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+      pointer-events: none;
+    }
+    #videoStats {
+      position: absolute;
+      z-index: 4;
+      left: 50%;
+      bottom: 8px;
+      transform: translateX(-50%);
+      padding: 3px 7px;
+      border-radius: 9px;
+      background: rgba(0,0,0,.58);
+      color: #dce5ec;
+      font-size: 10px;
+      pointer-events: none;
+    }
+    #flightTelemetry {
+      position: relative;
+      z-index: 4;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      flex-wrap: wrap;
+      width: 100%;
+      color: #dce5ec;
+      font-size: 10px;
+      white-space: nowrap;
+      pointer-events: none;
+    }
+    #flightTelemetry span {
+      padding: 3px 7px;
+      border-radius: 9px;
+      background: rgba(0,0,0,.58);
+    }
+    #altitudeHoldStatus[hidden] { display: none; }
+    .shade {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background: linear-gradient(180deg, rgba(0,0,0,.52), transparent 25%, transparent 68%, rgba(0,0,0,.42));
+    }
+    .topbar {
+      position: relative;
+      z-index: 3;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      pointer-events: none;
+    }
+    #battery, .actions > * {
+      min-height: 32px;
+      display: flex;
+      align-items: center;
+      border: 1px solid rgba(255,255,255,.28);
+      border-radius: 17px;
+      background: rgba(15,18,22,.58);
+      box-shadow: 0 4px 18px rgba(0,0,0,.24);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+    }
+    #battery { padding: 0 8px; font-size: 11px; font-weight: 650; transition: color .18s ease, border-color .18s ease; }
+    #battery.low { color: #ffd166; border-color: rgba(255,209,102,.78); }
+    #battery.critical { color: #ff9b98; border-color: rgba(255,123,120,.88); }
+    .actions { display: flex; gap: 6px; pointer-events: auto; }
+    .actions button, .switch { color: white; font-size: 10px; font-weight: 650; }
+    .actions button { padding: 0 8px; cursor: pointer; }
+    .actions button:disabled {
+      cursor: not-allowed;
+      opacity: .38;
+      color: #a0a6ad;
+      border-color: rgba(255,255,255,.12);
+    }
+    #connectToggle.connected { border-color: #ff7b78; color: #ffb0ae; }
+    #update { border: 1px solid rgba(255,255,255,.28); }
+    .switch { gap: 6px; padding: 0 9px; cursor: pointer; }
+    .switch input { position: absolute; opacity: 0; pointer-events: none; }
+    .track {
+      position: relative;
+      width: 30px;
+      height: 18px;
+      border-radius: 10px;
+      background: #5b626b;
+      transition: .18s ease;
+    }
+    .track::after {
+      content: "";
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: white;
+      transition: .18s ease;
+    }
+    .switch input:checked + .track { background: #36c86b; }
+    .switch input:checked + .track::after { transform: translateX(12px); }
+    .switch input:checked ~ .switch-text { color: #36c86b; }
+    .switch input:focus-visible + .track { outline: 2px solid #8ed8ff; outline-offset: 3px; }
+    .switch-text { color: white; transition: color .18s ease; }
+    #speedMode[hidden] { display: none; }
+    #settingsPanel {
+      position: fixed;
+      z-index: 30;
+      inset: 0;
+      display: none;
+      place-items: center;
+      padding: 24px;
+      background: rgba(0,0,0,.62);
+      touch-action: manipulation;
+    }
+    #settingsPanel.open { display: grid; }
+    .settings-card {
+      width: min(360px, 88vw);
+      padding: 22px;
+      display: grid;
+      gap: 14px;
+      border: 1px solid rgba(255,255,255,.25);
+      border-radius: 18px;
+      background: #20262d;
+      box-shadow: 0 18px 60px rgba(0,0,0,.5);
+      max-height: calc(100dvh - 32px);
+      overflow-y: auto;
+      touch-action: pan-y;
+    }
+    .settings-card h2 { margin: 0 0 4px; font-size: 20px; }
+    .trim-setting {
+      display: grid;
+      grid-template-columns: 72px 1fr 48px;
+      align-items: center;
+      gap: 10px;
+      font-size: 14px;
+    }
+    .trim-setting input { width: 100%; accent-color: #36c86b; }
+    .trim-setting output {
+      text-align: right;
+      color: #79dfa0;
+      font-variant-numeric: tabular-nums;
+    }
+    .settings-divider { height: 1px; background: rgba(255,255,255,.14); }
+    .version-setting {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: #aeb8c2;
+      font-size: 13px;
+    }
+    .version-setting output {
+      color: #dce5ec;
+      font-variant-numeric: tabular-nums;
+    }
+    .camera-setting {
+      min-height: 34px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0;
+    }
+    .camera-options {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .camera-options.hidden { display: none; }
+    .flip-option {
+      min-height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 9px;
+      border: 1px solid rgba(255,255,255,.18);
+      border-radius: 12px;
+      background: rgba(255,255,255,.045);
+      color: #dce5ec;
+      cursor: pointer;
+    }
+    .flip-option input { position: absolute; opacity: 0; pointer-events: none; }
+    .flip-check {
+      position: relative;
+      width: 20px;
+      height: 20px;
+      border: 2px solid #7b858f;
+      border-radius: 6px;
+      background: #303841;
+      transition: .18s ease;
+    }
+    .flip-option input:checked + .flip-check {
+      border-color: #36c86b;
+      background: #36c86b;
+    }
+    .flip-option input:checked + .flip-check::after {
+      content: "";
+      position: absolute;
+      left: 5px;
+      top: 1px;
+      width: 5px;
+      height: 10px;
+      border: solid white;
+      border-width: 0 2px 2px 0;
+      transform: rotate(45deg);
+    }
+    .flip-option.checked {
+      border-color: rgba(54,200,107,.55);
+      background: rgba(54,200,107,.10);
+    }
+    .settings-card button {
+      min-height: 46px;
+      border: 0;
+      border-radius: 12px;
+      color: white;
+      background: #3b4652;
+      font: 650 15px system-ui, sans-serif;
+    }
+    #firmwareUpdate { background: #258bd2; }
+    .controls {
+      position: relative;
+      z-index: 2;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: var(--right-stick-size) minmax(0, 1fr) var(--right-stick-size);
+      align-items: center;
+      gap: clamp(14px, 3vw, 36px);
+      pointer-events: none;
+    }
+    .stick-wrap { display: grid; justify-items: center; gap: 8px; }
+    .stick-wrap:first-child { width: 100%; justify-self: stretch; }
+    .center-panel {
+      min-width: 0; min-height: 0; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 8px;
+    }
+    .stick {
+      position: relative;
+      width: var(--right-stick-size);
+      height: var(--right-stick-size);
+      border: 2px solid rgba(255,255,255,.76);
+      border-radius: 50%;
+      background: rgba(20,24,29,.17);
+      box-shadow: inset 0 0 40px rgba(0,0,0,.24), 0 6px 24px rgba(0,0,0,.22);
+      pointer-events: auto;
+      touch-action: none;
+    }
+    .stick::before, .stick::after {
+      content: "";
+      position: absolute;
+      background: rgba(255,255,255,.20);
+      pointer-events: none;
+    }
+    .stick::before { left: 16%; right: 16%; top: 50%; height: 1px; }
+    .stick::after { top: 16%; bottom: 16%; left: 50%; width: 1px; }
+    .knob {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 36%;
+      height: 36%;
+      margin: -18%;
+      border: 2px solid rgba(255,255,255,.9);
+      border-radius: 50%;
+      background: rgba(216,222,228,.66);
+      box-shadow: 0 5px 18px rgba(0,0,0,.32);
+      pointer-events: none;
+      transform: translate(0,0);
+    }
+    #leftStick {
+      width: var(--left-stick-width); height: var(--left-stick-height);
+      border-radius: 26px; background: rgba(20,24,29,.65);
+    }
+    #leftStick::before { left: 10px; right: 10px; }
+    #leftStick::after { top: 22px; bottom: 22px; }
+    #leftKnob {
+      left: 10px; top: 50%; width: calc(100% - 20px); height: 44px;
+      margin: -22px 0 0; border-radius: 14px;
+      transform: translateY(calc(var(--throttle-position, 1) * (var(--left-stick-height) / 2 - 30px)));
+      background: #a9bdca;
+    }
+    .throttle-control {
+      width: min(100%, 210px);
+      display: grid;
+      grid-template-columns: minmax(36px, 1fr) var(--left-stick-width) minmax(36px, 1fr);
+      align-items: center;
+      gap: clamp(3px, .8vw, 8px);
+    }
+    .yaw-switch {
+      min-width: 0; min-height: 64px; padding: 6px 2px;
+      display: grid; justify-items: center; align-content: center; gap: 7px;
+      color: #edf3f7; font: 12px system-ui, sans-serif;
+      pointer-events: auto; touch-action: manipulation; cursor: pointer;
+    }
+    .yaw-switch input {
+      appearance: none; position: relative; width: 100%; height: 28px; margin: 0;
+      background: #4c5863; border: 1px solid #8998a5; border-radius: 15px;
+      cursor: pointer;
+    }
+    .yaw-switch input::after {
+      content: ""; position: absolute; width: 20px; height: 20px;
+      top: 3px; left: 3px; border-radius: 50%; background: white;
+    }
+    .yaw-switch input:checked { background: #269c52; border-color: #59d681; }
+    .yaw-switch input:checked::after { left: calc(100% - 23px); }
+    .yaw-switch input:focus-visible { outline: 2px solid #8ed8ff; outline-offset: 3px; }
+    .yaw-switch input:disabled, .yaw-switch input:disabled + span { opacity: .35; cursor: not-allowed; }
+    .stick-label { color: rgba(255,255,255,.76); font-size: 11px; text-shadow: 0 1px 4px #000; }
+    #status {
+      position: relative;
+      z-index: 3;
+      padding: 6px 10px;
+      max-width: 100%; text-align: center;
+      border-radius: 18px;
+      background: rgba(15,18,22,.55);
+      color: rgba(255,255,255,.82);
+      font-size: 11px;
+      pointer-events: none;
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+    }
+    #flightActions {
+      position: relative; z-index: 4;
+      display: flex; gap: 7px; width: 100%; max-width: 360px;
+      pointer-events: auto;
+    }
+    #flightActions[hidden] { display: none; }
+    #flightActions button {
+      flex: 1; min-width: 0; min-height: 40px; padding: 0 6px;
+      border: 1px solid rgba(255,255,255,.35); border-radius: 12px;
+      background: #23834c; color: white; font: 650 12px system-ui, sans-serif;
+      touch-action: manipulation;
+    }
+    #flightActions button:disabled { opacity: .4; }
+    #landButton { background: #3b4652 !important; }
+    #stopButton { background: #a72f35 !important; }
+    @media (max-height: 350px) and (orientation: landscape) {
+      #app { gap: 8px; padding-top: 6px; padding-bottom: 6px; }
+      .center-panel { gap: 5px; }
+      .stick-label { font-size: 10px; }
+      #flightTelemetry { font-size: 9px; gap: 3px; }
+      #flightTelemetry span { padding: 2px 4px; }
+      #status { padding: 4px 8px; font-size: 10px; }
+    }
+    @media (orientation: portrait) {
+      :root { --right-stick-size: clamp(120px, 34vw, 180px); --left-stick-height: min(48dvh, 320px); }
+      body:not(.control-connected) #landscapeGate { display: grid; }
+      .controls { gap: 10px; }
+      #flightActions { flex-direction: column; }
+      #flightTelemetry { flex-direction: column; font-size: 9px; }
+      .topbar { align-items: flex-start; }
+      .actions {
+        max-width: calc(100vw - 66px);
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 4px;
+      }
+      .actions button, .switch { min-height: 28px; font-size: 9px; }
+      .actions button { padding: 0 6px; }
+      .switch { gap: 4px; padding: 0 6px; }
+      .track { width: 26px; height: 16px; }
+      .track::after { top: 3px; left: 3px; width: 10px; height: 10px; }
+      .switch input:checked + .track::after { transform: translateX(10px); }
+    }
+  </style>
+</head>
+<body>
+  <aside id="landscapeGate">
+    <div class="gate-card">
+      <div class="phone-icon"></div>
+      <strong>请使用横屏控制无人机</strong>
+      <button id="enterLandscape" type="button">进入横屏控制</button>
+      <p id="landscapeHint">点击后将尝试自动切换横屏</p>
+    </div>
+  </aside>
+  <aside id="settingsPanel">
+    <div class="settings-card">
+      <h2>设置</h2>
+      <label class="trim-setting">
+        <span>Roll微调</span>
+        <input id="rollTrim" type="range" min="-5" max="5" step="0.1" value="0">
+        <output id="rollTrimValue">+0.0°</output>
+      </label>
+      <label class="trim-setting">
+        <span>Pitch微调</span>
+        <input id="pitchTrim" type="range" min="-5" max="5" step="0.1" value="0">
+        <output id="pitchTrimValue">+0.0°</output>
+      </label>
+      <div class="settings-divider"></div>
+      <label class="switch camera-setting">
+        <input id="cameraFlipSetting" type="checkbox">
+        <span class="track"></span>
+        <span class="switch-text">摄像头翻转</span>
+      </label>
+      <div id="cameraFlipOptions" class="camera-options hidden">
+        <label class="flip-option">
+          <input id="cameraFlipHorizontal" type="checkbox" checked>
+          <span class="flip-check"></span>
+          <span>水平翻转</span>
+        </label>
+        <label class="flip-option">
+          <input id="cameraFlipVertical" type="checkbox" checked>
+          <span class="flip-check"></span>
+          <span>垂直翻转</span>
+        </label>
+      </div>
+      <div class="settings-divider"></div>
+      <div class="version-setting">
+        <span>当前版本</span>
+        <output id="firmwareVersion">--</output>
+      </div>
+      <button id="resetSettings" type="button">重置所有设置</button>
+      <button id="firmwareUpdate" type="button">固件更新</button>
+      <button id="closeSettings" type="button">关闭</button>
+    </div>
+  </aside>
+  <main id="app">
+    <div class="shade"></div>
+    <header class="topbar">
+      <div id="battery">
+        <span id="batteryValue">--V</span>
+      </div>
+      <div class="actions">
+        <button id="connectToggle" type="button">连接</button>
+        <label id="speedMode" class="switch" hidden title="低速：平移 0.7 m/s、升降 0.4 m/s；高速：平移 1.2 m/s、升降 0.7 m/s">
+          <input id="highSpeed" type="checkbox" role="switch" aria-label="高速模式，平移每秒 1.2 米，上升下降均为每秒 0.7 米">
+          <span class="track"></span>
+          <span id="speedModeText" class="switch-text">低速模式</span>
+        </label>
+        <label class="switch">
+          <input id="carefree" type="checkbox">
+          <span class="track"></span>
+          <span class="switch-text">无头模式</span>
+        </label>
+        <label class="switch">
+          <input id="yawLocked" type="checkbox" checked>
+          <span class="track"></span>
+          <span class="switch-text">YAW锁定</span>
+        </label>
+        <label class="switch">
+          <input id="cameraFlip" type="checkbox">
+          <span class="track"></span>
+          <span class="switch-text">翻转</span>
+        </label>
+        <button id="orientationToggle" type="button">横屏全屏</button>
+        <button id="settings" type="button">设置</button>
+      </div>
+    </header>
+    <section class="controls">
+      <div class="stick-wrap">
+        <div class="stick-label">升降</div>
+        <div class="throttle-control">
+          <label class="yaw-switch">
+            <input id="yawLeft" type="checkbox" role="switch" aria-label="左转，每秒 45 度" disabled>
+            <span>左转</span>
+          </label>
+          <div class="stick" id="leftStick" aria-label="上下升降摇杆"><div class="knob" id="leftKnob"></div></div>
+          <label class="yaw-switch">
+            <input id="yawRight" type="checkbox" role="switch" aria-label="右转，每秒 45 度" disabled>
+            <span>右转</span>
+          </label>
+        </div>
+      </div>
+      <div class="center-panel">
+        <div id="flightActions" hidden>
+          <button id="takeoffButton" type="button" disabled>一键起飞</button>
+          <button id="landButton" type="button" disabled>降落</button>
+          <button id="stopButton" type="button" disabled>紧急停桨</button>
+        </div>
+        <div class="video-frame">
+          <div id="video"><span id="videoText">点击连接开始图传</span></div>
+          <div id="videoStats">-- FPS</div>
+        </div>
+        <div id="flightTelemetry">
+          <span id="relativeHeight">H:--m</span>
+          <span id="ridOperationStatus">运行状态-未报告</span>
+          <span id="altitudeHoldStatus" hidden>定高-锁定</span>
+        </div>
+        <div id="status">触摸摇杆开始控制</div>
+      </div>
+      <div class="stick-wrap">
+        <div class="stick" id="rightStick" aria-label="前后左右方向摇杆"><div class="knob" id="rightKnob"></div></div>
+        <div class="stick-label">前后 · 左右</div>
+      </div>
+    </section>
+  </main>
+  <script>
+    const state = { throttle: 0, yaw: 0, roll: 0, pitch: 0 };
+    const highSpeed = document.getElementById('highSpeed');
+    const speedModeText = document.getElementById('speedModeText');
+    const carefree = document.getElementById('carefree');
+    const yawLocked = document.getElementById('yawLocked');
+    const status = document.getElementById('status');
+    const battery = document.getElementById('battery');
+    const batteryValue = document.getElementById('batteryValue');
+    const landscapeHint = document.getElementById('landscapeHint');
+    const connectToggle = document.getElementById('connectToggle');
+    const settingsButton = document.getElementById('settings');
+    const rollTrim = document.getElementById('rollTrim');
+    const pitchTrim = document.getElementById('pitchTrim');
+    const rollTrimValue = document.getElementById('rollTrimValue');
+    const pitchTrimValue = document.getElementById('pitchTrimValue');
+    const cameraFlip = document.getElementById('cameraFlip');
+    const cameraFlipSetting = document.getElementById('cameraFlipSetting');
+    const cameraFlipHorizontal = document.getElementById('cameraFlipHorizontal');
+    const cameraFlipVertical = document.getElementById('cameraFlipVertical');
+    const cameraFlipOptions = document.getElementById('cameraFlipOptions');
+    const firmwareVersion = document.getElementById('firmwareVersion');
+    const relativeHeight = document.getElementById('relativeHeight');
+    const ridOperationStatus = document.getElementById('ridOperationStatus');
+    const altitudeHoldStatus = document.getElementById('altitudeHoldStatus');
+    const flightActions = document.getElementById('flightActions');
+    const takeoffButton = document.getElementById('takeoffButton');
+    const landButton = document.getElementById('landButton');
+    const stopButton = document.getElementById('stopButton');
+    const THROTTLE_SEND_MIN = 50;
+    const ALT_HOLD_DESCEND_MAX = 27766;
+    const ALT_HOLD_CENTER = 32767;
+    const ALT_HOLD_ASCEND_MIN = 37768;
+    const ALT_HOLD_DEADZONE = 0.1;
+    const SETTINGS_STORAGE_KEY = 'tinyDroneWebSettings';
+    const DEFAULT_SETTINGS = Object.freeze({
+      rollTrim: 0,
+      pitchTrim: 0,
+      carefree: false,
+      yawLocked: true,
+      cameraFlipEnabled: false,
+      cameraFlipHorizontal: true,
+      cameraFlipVertical: true
+    });
+    const WS_VIDEO_MAGIC = 0x44575654;
+    const WS_VIDEO_HEADER_SIZE = 34;
+    let enabled = false;
+    let controlWorker = null;
+    let controlConnected = false;
+    let videoWorker = null;
+    let wsVideoFrameId = -1;
+    let wsVideoFrame = null;
+    let wsVideoReceived = 0;
+    let wsVideoImage = null;
+    let lastVideoPacketAt = 0;
+    let desiredConnected = false;
+    let cameraAvailable = false;
+    let lastRenderedFrameAt = 0;
+    let activeVideoUrl = null;
+    let videoDecodeBusy = false;
+    let pendingVideoFrame = null;
+    let displayedFrameCount = 0;
+    let fpsWindowStartedAt = 0;
+    let fpsTimer = null;
+    let batteryPollTimer = null;
+    let currentFlightMode = 0;
+    let altitudeHoldUnlocked = false;
+    let ridAirborneObserved = false;
+    let lastRidOperationState = 0;
+    let posHoldPhase = 0;
+    let posHoldReady = false;
+    let flightButtons = 0;
+    let flightActionTimer = null;
+    let telemetryAt = 0;
+    let heldSticks = 0;
+    let activeYawDirection = 0;
+
+    function clearYawSwitches() {
+      const hadYaw = activeYawDirection !== 0 || state.yaw !== 0;
+      activeYawDirection = 0;
+      state.yaw = 0;
+      document.getElementById('yawLeft').checked = false;
+      document.getElementById('yawRight').checked = false;
+      return hadYaw;
+    }
+
+    function setThrottleKnob(position) {
+      const knob = document.getElementById('leftKnob');
+      knob.style.removeProperty('transform');
+      knob.style.setProperty('--throttle-position', Math.max(-1, Math.min(1, position)));
+    }
+
+    function updateYawSwitches() {
+      const locked = !desiredConnected || !controlConnected || yawLocked.checked;
+      document.getElementById('yawLeft').disabled = locked;
+      document.getElementById('yawRight').disabled = locked;
+      if (locked && clearYawSwitches()) sendControl(true);
+    }
+
+    function updateFlightButtons() {
+      updateYawSwitches();
+      const posHold = currentFlightMode === 0x02;
+      const connected = desiredConnected && controlConnected;
+      const fresh = performance.now() - telemetryAt < 1500;
+      flightActions.hidden = !posHold;
+      document.getElementById('speedMode').hidden = !posHold;
+      if (!posHold && highSpeed.checked) {
+        highSpeed.checked = false;
+        sendControl(true);
+      }
+      speedModeText.textContent = highSpeed.checked ? '高速模式' : '低速模式';
+      document.getElementById('app').classList.toggle('poshold', posHold);
+      const flying = posHoldPhase >= 1 && posHoldPhase <= 5;
+      takeoffButton.disabled = !connected || !fresh || !posHoldReady || flying ||
+        Boolean(flightButtons) || heldSticks > 0 || activeYawDirection !== 0;
+      landButton.disabled = !connected || !flying || posHoldPhase === 5;
+      stopButton.disabled = !connected;
+    }
+
+    function posHoldReasonText(reason) {
+      return ['', '测距或光流不可用', '请将飞机平放并保持静止', '电机锁定或翻倒保护',
+        '电池电量不足', '请将摇杆回中', '飞机已起飞或离地过高',
+        '未检测到升空，已停桨', '飞行阶段超时', '控制连接超时', '位置估计未就绪'][reason] || '';
+    }
+
+    function centerFlightSticks() {
+      state.roll = state.pitch = 0;
+      clearYawSwitches();
+      state.throttle = ALT_HOLD_CENTER;
+      setThrottleKnob(0);
+      document.getElementById('rightKnob').style.transform = 'translate(0,0)';
+    }
+
+    function sendFlightAction(buttons) {
+      if (!desiredConnected || !controlConnected || currentFlightMode !== 0x02) return;
+      clearTimeout(flightActionTimer);
+      centerFlightSticks();
+      enabled = altitudeHoldUnlocked = true;
+      flightButtons = buttons;
+      sendControl(true);
+      updateFlightButtons();
+      /* Repeat on the existing control stream until telemetry acknowledges it.
+       * An unanswered request expires instead of starting on a later reconnect. */
+      flightActionTimer = setTimeout(() => {
+        flightButtons = 0;
+        sendControl(true);
+        updateFlightButtons();
+      }, 1500);
+    }
+
+    takeoffButton.addEventListener('click', () => {
+      if (takeoffButton.disabled) return;
+      status.textContent = '正在请求起飞至 0.5 米';
+      sendFlightAction(0x02);
+    });
+    landButton.addEventListener('click', () => sendFlightAction(0x04));
+    stopButton.addEventListener('click', () => {
+      sendFlightAction(0x08);
+      status.textContent = '已发送紧急停桨';
+    });
+
+    function resetDisplayedFps(running) {
+      displayedFrameCount = 0;
+      fpsWindowStartedAt = performance.now();
+      document.getElementById('videoStats').textContent = running ? '等待画面' : '-- FPS';
+      clearInterval(fpsTimer);
+      fpsTimer = null;
+      if (!running) return;
+      fpsTimer = setInterval(() => {
+        const now = performance.now();
+        const elapsed = now - fpsWindowStartedAt;
+        if (elapsed < 500) return;
+        const fps = displayedFrameCount * 1000 / elapsed;
+        document.getElementById('videoStats').textContent = `${fps.toFixed(1)} FPS`;
+        displayedFrameCount = 0;
+        fpsWindowStartedAt = now;
+      }, 1000);
+    }
+
+    const YAW_RATE_DEG_S = 45;
+
+    function updateBattery(voltage) {
+      if (!Number.isFinite(voltage) || voltage <= 0) return;
+      batteryValue.textContent = `${voltage.toFixed(2)}V`;
+      battery.classList.toggle('low', voltage < 3.60 && voltage >= 3.40);
+      battery.classList.toggle('critical', voltage < 3.40);
+    }
+
+    function ridStateText(value) {
+      if (value === 0x00) return '未报告';
+      if (value === 0x01) return '地面';
+      if (value === 0x02) return '空中';
+      if (value === 0x03) return '紧急情况';
+      if (value === 0x04) return '故障但可正常控制';
+      if (value === 0x05) return '故障且紧急';
+      if (value >= 0x06 && value <= 0x0f) return '保留';
+      return '未知';
+    }
+
+    function updateFlightTelemetry(data) {
+      telemetryAt = performance.now();
+      const height = Number(data.relativeHeight);
+      relativeHeight.textContent = Number.isFinite(height) ?
+        `H:${height.toFixed(2)}m` : 'H:--m';
+
+      const ridState = Number(data.ridState);
+      ridOperationStatus.textContent = `运行状态-${ridStateText(ridState)}`;
+      if (ridState === 0x02) ridAirborneObserved = true;
+      if (ridState === 0x01 && ridAirborneObserved &&
+          lastRidOperationState !== 0x01) {
+        altitudeHoldUnlocked = false;
+      }
+      lastRidOperationState = ridState;
+
+      const previousFlightMode = currentFlightMode;
+      const previousAltitudeMode =
+        currentFlightMode === 0x01 || currentFlightMode === 0x02;
+      const previousPosHoldPhase = posHoldPhase;
+      currentFlightMode = Number(data.flightMode);
+      if (currentFlightMode !== previousFlightMode && clearYawSwitches()) sendControl(true);
+      posHoldPhase = Number(data.posHoldState) || 0;
+      if (posHoldPhase !== previousPosHoldPhase &&
+          (posHoldPhase === 1 || posHoldPhase === 2 || posHoldPhase >= 5) &&
+          clearYawSwitches()) sendControl(true);
+      posHoldReady = data.posHoldReady === true;
+      if ((flightButtons === 0x02 && posHoldPhase >= 1 && posHoldPhase <= 5) ||
+          (flightButtons === 0x04 && (posHoldPhase === 5 || posHoldPhase >= 6)) ||
+          (flightButtons === 0x08 && posHoldPhase >= 6)) {
+        flightButtons = 0;
+        clearTimeout(flightActionTimer);
+        sendControl(true);
+      }
+      if (posHoldPhase >= 1 && posHoldPhase <= 5) altitudeHoldUnlocked = true;
+      if (posHoldPhase >= 6 && previousPosHoldPhase >= 1 && previousPosHoldPhase <= 5) {
+        centerFlightSticks();
+        altitudeHoldUnlocked = false;
+      }
+      updateFlightButtons();
+      const altitudeMode = currentFlightMode === 0x01 || currentFlightMode === 0x02;
+      if (previousAltitudeMode && !altitudeMode) {
+        state.throttle = 0;
+        clearYawSwitches();
+        setThrottleKnob(1);
+      }
+      altitudeHoldStatus.hidden = !altitudeMode;
+      if (currentFlightMode === 0x02) {
+        const phaseText = ['待起飞', '电机逐步启动', '正在升至 0.5 米', '定点悬停',
+          '手动控制', '正在降落', '已停桨', '已停止'];
+        const reason = posHoldReasonText(Number(data.posHoldReason));
+        altitudeHoldStatus.textContent = `定点-${phaseText[posHoldPhase] || '未就绪'}`;
+        if (!flightButtons) status.textContent = reason ||
+          (posHoldPhase === 3 ? '定点悬停中，推动摇杆可接管，松手悬停' :
+           phaseText[posHoldPhase] || '等待飞控');
+        return;
+      }
+      if (!altitudeMode) {
+        altitudeHoldUnlocked = false;
+        return;
+      }
+
+      let text = '定高-锁定';
+      if (altitudeHoldUnlocked) {
+        if (state.throttle <= 27766) text = '定高-下降';
+        else if (state.throttle <= 37767 || data.altitudeHolding === true) text = '定高-保持';
+        else text = '定高-上升';
+      }
+      altitudeHoldStatus.textContent = text;
+    }
+
+    async function pollBattery() {
+      if (!desiredConnected) return;
+      try {
+        const response = await fetch('/api/telemetry', { cache: 'no-store' });
+        const telemetry = await response.json();
+        updateBattery(Number(telemetry.battery));
+        updateFlightTelemetry(telemetry);
+      } catch (_) {
+        /* Keep the last valid reading visible while a short reconnect happens. */
+      }
+    }
+
+    function startBatteryPolling() {
+      clearInterval(batteryPollTimer);
+      pollBattery();
+      batteryPollTimer = setInterval(pollBattery, 500);
+    }
+
+    function clampTrim(value) {
+      const number = Number(value);
+      if (!Number.isFinite(number)) return 0;
+      return Math.round(Math.max(-5, Math.min(5, number)) * 10) / 10;
+    }
+
+    function updateTrimLabels() {
+      rollTrimValue.textContent = `${Number(rollTrim.value) >= 0 ? '+' : ''}${Number(rollTrim.value).toFixed(1)}°`;
+      pitchTrimValue.textContent = `${Number(pitchTrim.value) >= 0 ? '+' : ''}${Number(pitchTrim.value).toFixed(1)}°`;
+    }
+
+    function applyCameraFlip() {
+      const enabled = cameraFlip.checked;
+      cameraFlipSetting.checked = enabled;
+      cameraFlipOptions.classList.toggle('hidden', !enabled);
+      cameraFlipHorizontal.closest('.flip-option').classList.toggle(
+        'checked', cameraFlipHorizontal.checked);
+      cameraFlipVertical.closest('.flip-option').classList.toggle(
+        'checked', cameraFlipVertical.checked);
+      if (!wsVideoImage) return;
+      const scaleX = enabled && cameraFlipHorizontal.checked ? -1 : 1;
+      const scaleY = enabled && cameraFlipVertical.checked ? -1 : 1;
+      wsVideoImage.style.transform = `scale(${scaleX},${scaleY})`;
+    }
+
+    function applySettings(settings) {
+      rollTrim.value = clampTrim(settings.rollTrim);
+      pitchTrim.value = clampTrim(settings.pitchTrim);
+      carefree.checked = settings.carefree === true;
+      yawLocked.checked = settings.yawLocked !== false;
+      if (carefree.checked) yawLocked.checked = false;
+      clearYawSwitches();
+      updateYawSwitches();
+      cameraFlip.checked = settings.cameraFlipEnabled === true;
+      cameraFlipSetting.checked = cameraFlip.checked;
+      cameraFlipHorizontal.checked = settings.cameraFlipHorizontal !== false;
+      cameraFlipVertical.checked = settings.cameraFlipVertical !== false;
+      updateTrimLabels();
+      applyCameraFlip();
+    }
+
+    function saveSettings() {
+      const settings = {
+        rollTrim: clampTrim(rollTrim.value),
+        pitchTrim: clampTrim(pitchTrim.value),
+        carefree: carefree.checked,
+        yawLocked: yawLocked.checked,
+        cameraFlipEnabled: cameraFlip.checked,
+        cameraFlipHorizontal: cameraFlipHorizontal.checked,
+        cameraFlipVertical: cameraFlipVertical.checked
+      };
+      try { localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings)); }
+      catch (_) { /* Private browsing or disabled storage: keep session values. */ }
+    }
+
+    function loadSettings() {
+      let settings = DEFAULT_SETTINGS;
+      try {
+        const saved = JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY));
+        if (saved && typeof saved === 'object') settings = { ...DEFAULT_SETTINGS, ...saved };
+      } catch (_) { /* Ignore damaged or unavailable browser storage. */ }
+      applySettings(settings);
+    }
+
+    function bindStick(stickId, knobId, isLeft) {
+      const stick = document.getElementById(stickId);
+      const knob = document.getElementById(knobId);
+      let pointerId = null;
+      let savedY = isLeft ? 1 : 0;
+
+      function update(event) {
+        const box = stick.getBoundingClientRect();
+        const radius = box.width / 2;
+        let x = (event.clientX - box.left - radius) / radius;
+        let y = (event.clientY - box.top - box.height / 2) / (box.height / 2);
+        const length = Math.hypot(x, y);
+        if (!isLeft && length > 0.78) { x *= 0.78 / length; y *= 0.78 / length; }
+        const normalizedX = x / 0.78;
+        const normalizedY = y / 0.78;
+        if (isLeft) {
+          /* The rectangular control uses its full vertical travel. Horizontal
+           * finger movement cannot add yaw to an ascent/descent command. */
+          const travel = Math.max(1, box.height / 2 - 30);
+          const vertical = Math.max(-1, Math.min(1,
+            (event.clientY - box.top - box.height / 2) / travel));
+          setThrottleKnob(vertical);
+          const altitudeMode = currentFlightMode === 0x01 || currentFlightMode === 0x02;
+          if (altitudeMode) {
+            const input = -vertical;
+              const deadzone = currentFlightMode === 0x02 ? 0.05 : ALT_HOLD_DEADZONE;
+              if (input < -deadzone) {
+                const scale = (input + 1) / (1 - deadzone);
+              state.throttle = Math.round(Math.max(0, Math.min(1, scale)) *
+                                          ALT_HOLD_DESCEND_MAX);
+              } else if (input > deadzone) {
+                const scale = (input - deadzone) /
+                            (1 - deadzone);
+              state.throttle = Math.round(ALT_HOLD_ASCEND_MIN +
+                  Math.max(0, Math.min(1, scale)) *
+                  (65535 - ALT_HOLD_ASCEND_MIN));
+            } else {
+              state.throttle = ALT_HOLD_CENTER;
+            }
+            if (!altitudeHoldUnlocked && state.throttle >= ALT_HOLD_ASCEND_MIN) {
+              altitudeHoldUnlocked = true;
+            }
+          } else {
+            state.throttle = Math.round((1 - vertical) * 27500);
+          }
+          savedY = vertical;
+        } else {
+          knob.style.transform = `translate(${x * 113}%,${y * 113}%)`;
+          state.roll = normalizedX * 15;
+          state.pitch = normalizedY * 15;
+        }
+      }
+
+      stick.addEventListener('pointerdown', event => {
+        if (!desiredConnected) {
+          status.textContent = '请先点击连接';
+          return;
+        }
+        if (!controlConnected) {
+          status.textContent = '控制连接中';
+          return;
+        }
+        if (pointerId !== null) return;
+        event.preventDefault();
+        pointerId = event.pointerId;
+        heldSticks++;
+        updateFlightButtons();
+        stick.setPointerCapture(pointerId);
+        enabled = true;
+        status.textContent = '网页控制中';
+        update(event);
+        sendControl(true);
+      });
+      stick.addEventListener('pointermove', event => {
+        if (event.pointerId === pointerId) {
+          update(event);
+          sendControl(false);
+        }
+      });
+      function release(event) {
+        if (event.pointerId !== pointerId) return;
+        pointerId = null;
+        heldSticks = Math.max(0, heldSticks - 1);
+        updateFlightButtons();
+        if (isLeft) {
+          const altitudeMode = currentFlightMode === 0x01 || currentFlightMode === 0x02;
+          if (currentFlightMode === 0x02) {
+            state.throttle = ALT_HOLD_CENTER;
+            savedY = 0;
+            setThrottleKnob(0);
+          } else if (altitudeMode) {
+            setThrottleKnob(savedY);
+          } else {
+            state.throttle = 0;
+            savedY = 1;
+            setThrottleKnob(1);
+          }
+        } else {
+          state.roll = 0;
+          state.pitch = 0;
+          knob.style.transform = 'translate(0,0)';
+        }
+        sendControl(true);
+      }
+      stick.addEventListener('pointerup', release);
+      stick.addEventListener('pointercancel', event => {
+        if (event.pointerId !== pointerId) return;
+        if (currentFlightMode === 0x02) { release(event); return; }
+        pointerId = null;
+        heldSticks = Math.max(0, heldSticks - 1);
+        updateFlightButtons();
+        if (isLeft) {
+          const altitudeMode = currentFlightMode === 0x01 || currentFlightMode === 0x02;
+          if (altitudeMode) {
+            setThrottleKnob(savedY);
+          } else {
+            state.throttle = 0;
+            savedY = 1;
+            setThrottleKnob(1);
+          }
+          enabled = true;
+          sendControl(true);
+          status.textContent = altitudeMode ? '定高油门保持当前位置' : '油门已归零';
+          return;
+        }
+        enabled = false;
+        pauseControl();
+        status.textContent = '触摸中断，等待飞控超时保护';
+      });
+      stick.addEventListener('lostpointercapture', event => {
+        if (event.pointerId !== pointerId) return;
+        if (currentFlightMode === 0x02) { release(event); return; }
+        pointerId = null;
+        heldSticks = Math.max(0, heldSticks - 1);
+        updateFlightButtons();
+        if (isLeft) {
+          const altitudeMode = currentFlightMode === 0x01 || currentFlightMode === 0x02;
+          if (altitudeMode) {
+            setThrottleKnob(savedY);
+          } else {
+            state.throttle = 0;
+            savedY = 1;
+            setThrottleKnob(1);
+          }
+          enabled = true;
+          sendControl(true);
+          status.textContent = altitudeMode ? '定高油门保持当前位置' : '油门已归零';
+          return;
+        }
+        enabled = false;
+        pauseControl();
+        status.textContent = '触摸中断，等待飞控超时保护';
+      });
+    }
+
+    function bindYawSwitch(id, direction) {
+      const input = document.getElementById(id);
+      input.addEventListener('change', () => {
+        const turnOn = input.checked && !input.disabled && desiredConnected &&
+          controlConnected && !yawLocked.checked;
+        clearYawSwitches();
+        if (turnOn) {
+          input.checked = true;
+          activeYawDirection = direction;
+          enabled = true;
+          // Legacy RPYT yaw is a rate in deg/s, including carefree mode.
+          state.yaw = direction * YAW_RATE_DEG_S;
+        }
+        updateFlightButtons();
+        sendControl(true);
+      });
+    }
+
+    function renderVideoFrame(frameBytes) {
+      if (!desiredConnected) return;
+      /* JPEG decoding is single-flight. While one image is decoding, replace
+       * the pending frame so the browser never works through an old backlog. */
+      pendingVideoFrame = frameBytes;
+      if (videoDecodeBusy) return;
+      decodeLatestVideoFrame();
+    }
+
+    function decodeLatestVideoFrame() {
+      if (!desiredConnected || videoDecodeBusy || !pendingVideoFrame) return;
+      const frameBytes = pendingVideoFrame;
+      pendingVideoFrame = null;
+      videoDecodeBusy = true;
+      if (!wsVideoImage) {
+        wsVideoImage = new Image();
+        wsVideoImage.alt = 'Tiny Drone video';
+        applyCameraFlip();
+        document.getElementById('video').replaceChildren(wsVideoImage);
+      }
+      const objectUrl = URL.createObjectURL(
+        new Blob([frameBytes], { type: 'image/jpeg' }));
+      activeVideoUrl = objectUrl;
+      wsVideoImage.onload = () => {
+        if (activeVideoUrl === objectUrl) activeVideoUrl = null;
+        URL.revokeObjectURL(objectUrl);
+        videoDecodeBusy = false;
+        lastRenderedFrameAt = performance.now();
+        displayedFrameCount++;
+        decodeLatestVideoFrame();
+      };
+      wsVideoImage.onerror = () => {
+        if (activeVideoUrl === objectUrl) activeVideoUrl = null;
+        URL.revokeObjectURL(objectUrl);
+        videoDecodeBusy = false;
+        decodeLatestVideoFrame();
+      };
+      wsVideoImage.src = objectUrl;
+    }
+
+    function handleControlMessage(data) {
+        if (!(data instanceof ArrayBuffer)) return;
+        const bytes = new Uint8Array(data);
+        if (bytes.byteLength === 4) {
+          const view = new DataView(data);
+          cameraAvailable = bytes[1] === 1;
+          updateBattery(view.getUint16(2, true) / 1000);
+          /* A transient rejected packet is not a connection fault. Keep the
+           * current control status unchanged; onclose handles real loss. */
+          return;
+        }
+        if (bytes.byteLength === 1) {
+          /* A rejected packet is not an emergency-stop command. Commander
+           * WDT handles a real interruption when accepted packets cease. */
+          return;
+        }
+        if (bytes.byteLength < WS_VIDEO_HEADER_SIZE) return;
+        const view = new DataView(data);
+        if (view.getUint32(0, true) !== WS_VIDEO_MAGIC) return;
+        /* Do not synthesize zero throttle from a transient rejected packet. */
+
+        const frameId = view.getUint32(20, true);
+        const totalSize = view.getUint32(24, true);
+        const offset = view.getUint32(28, true);
+        const dataLength = view.getUint16(32, true);
+        if (!dataLength || totalSize < dataLength ||
+            WS_VIDEO_HEADER_SIZE + dataLength > bytes.byteLength) return;
+
+        if (frameId !== wsVideoFrameId || offset === 0) {
+          wsVideoFrameId = frameId;
+          wsVideoFrame = new Uint8Array(totalSize);
+          wsVideoReceived = 0;
+        }
+        if (!wsVideoFrame || offset !== wsVideoReceived ||
+            offset + dataLength > wsVideoFrame.length) return;
+
+        wsVideoFrame.set(bytes.subarray(WS_VIDEO_HEADER_SIZE,
+                                        WS_VIDEO_HEADER_SIZE + dataLength), offset);
+        wsVideoReceived += dataLength;
+        if (wsVideoReceived === wsVideoFrame.length) {
+          renderVideoFrame(wsVideoFrame);
+          wsVideoFrame = null;
+          wsVideoReceived = 0;
+        }
+    }
+
+    function ensureControlWorker() {
+      if (controlWorker) return;
+      const source = `
+        let socket = null;
+        let desired = false;
+        let latest = null;
+        let active = false;
+        let endpoint = '';
+        let reconnectTimer = null;
+        let disconnectedAt = 0;
+        let congestedAt = 0;
+        const MAX_BUFFERED_BYTES = 120;
+        const MAX_CONGESTION_MS = 250;
+
+        function clearLatestYaw() {
+          if (latest) new DataView(latest).setFloat32(8, 0, true);
+        }
+
+        function connect() {
+          if (!desired || !endpoint || (socket && socket.readyState <= 1)) return;
+          const candidate = new WebSocket(endpoint);
+          socket = candidate;
+          candidate.binaryType = 'arraybuffer';
+          candidate.onopen = () => {
+            const outage = disconnectedAt ? Date.now() - disconnectedAt : 0;
+            disconnectedAt = 0;
+            congestedAt = 0;
+            if (outage > 1000) active = false;
+            clearLatestYaw();
+            postMessage({ type: 'open', outage });
+            sendLatest();
+          };
+          candidate.onmessage = event => {
+            if (candidate !== socket || !(event.data instanceof ArrayBuffer)) return;
+            postMessage({ type: 'data', data: event.data }, [event.data]);
+          };
+          candidate.onerror = () => candidate.close();
+          candidate.onclose = () => {
+            if (candidate !== socket) return;
+            socket = null;
+            clearLatestYaw();
+            if (latest) new DataView(latest).setUint8(14,
+              new DataView(latest).getUint8(14) & 0x11);
+            if (!desired) return;
+            if (!disconnectedAt) disconnectedAt = Date.now();
+            postMessage({ type: 'close' });
+            clearTimeout(reconnectTimer);
+            reconnectTimer = setTimeout(connect, 100);
+          };
+        }
+
+        function sendLatest() {
+          if (!desired || !active || !latest || !socket ||
+              socket.readyState !== WebSocket.OPEN) return;
+          if (socket.bufferedAmount > MAX_BUFFERED_BYTES) {
+            if (!congestedAt) congestedAt = Date.now();
+            if (Date.now() - congestedAt > MAX_CONGESTION_MS) {
+              socket.close(4000, 'control congestion');
+            }
+            return;
+          }
+          congestedAt = 0;
+          socket.send(latest);
+        }
+
+        onmessage = event => {
+          const message = event.data;
+          if (message.type === 'start') {
+            desired = true;
+            endpoint = message.endpoint;
+            connect();
+          } else if (message.type === 'stop') {
+            desired = false;
+            active = false;
+            latest = null;
+            clearTimeout(reconnectTimer);
+            if (socket) socket.close(1000, 'user disconnect');
+            socket = null;
+          } else if (message.type === 'control') {
+            latest = message.data;
+            active = message.active;
+            if (message.immediate) sendLatest();
+          } else if (message.type === 'active') {
+            active = message.active;
+            if (!active) clearLatestYaw();
+          }
+        };
+        setInterval(sendLatest, 20);
+      `;
+      controlWorker = new Worker(URL.createObjectURL(
+        new Blob([source], { type: 'text/javascript' })));
+      controlWorker.onmessage = event => {
+        const message = event.data;
+        if (message.type === 'data') {
+          handleControlMessage(message.data);
+        } else if (message.type === 'open') {
+          controlConnected = true;
+          clearYawSwitches();
+          if (message.outage > 1000) {
+            enabled = false;
+            flightButtons = 0;
+            clearTimeout(flightActionTimer);
+          }
+          updateFlightButtons();
+          status.textContent = enabled ? '网页控制中' : '触摸摇杆开始控制';
+          sendControl(true);
+        } else if (message.type === 'close') {
+          controlConnected = false;
+          flightButtons = 0;
+          clearTimeout(flightActionTimer);
+          updateFlightButtons();
+          if (desiredConnected) status.textContent = '控制连接重连中';
+        }
+      };
+    }
+
+    function connectControl() {
+      if (!desiredConnected) return;
+      ensureControlWorker();
+      const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
+      controlWorker.postMessage({
+        type: 'start',
+        endpoint: `${protocol}://${location.host}/ws/control`
+      });
+    }
+
+    function connectVideoWs() {
+      if (!desiredConnected) return;
+      if (!videoWorker) {
+        const source = `
+          const MAGIC = 0x44575654;
+          const HEADER_SIZE = 34;
+          let socket = null;
+          let desired = false;
+          let endpoint = '';
+          let reconnectTimer = null;
+          let frameId = -1;
+          let frame = null;
+          let received = 0;
+
+          function resetFrame() {
+            frameId = -1;
+            frame = null;
+            received = 0;
+          }
+
+          function handlePacket(data) {
+            const bytes = new Uint8Array(data);
+            if (bytes.length < HEADER_SIZE) return;
+            const view = new DataView(data);
+            if (view.getUint32(0, true) !== MAGIC) return;
+            const nextId = view.getUint32(20, true);
+            const total = view.getUint32(24, true);
+            const offset = view.getUint32(28, true);
+            const length = view.getUint16(32, true);
+            if (!length || offset + length > total ||
+                HEADER_SIZE + length > bytes.length) return;
+            if (nextId !== frameId || offset === 0) {
+              frameId = nextId;
+              frame = new Uint8Array(total);
+              received = 0;
+            }
+            if (!frame || offset !== received) return;
+            frame.set(bytes.subarray(HEADER_SIZE, HEADER_SIZE + length), offset);
+            received += length;
+            if (received === frame.length) {
+              const completed = frame.buffer;
+              frame = null;
+              received = 0;
+              postMessage({ type: 'frame', data: completed }, [completed]);
+            }
+          }
+
+          function connect() {
+            if (!desired || !endpoint || (socket && socket.readyState <= 1)) return;
+            const candidate = new WebSocket(endpoint);
+            socket = candidate;
+            candidate.binaryType = 'arraybuffer';
+            candidate.onopen = () => postMessage({ type: 'open' });
+            candidate.onmessage = event => {
+              if (candidate === socket && event.data instanceof ArrayBuffer) {
+                handlePacket(event.data);
+              }
+            };
+            candidate.onerror = () => candidate.close();
+            candidate.onclose = () => {
+              if (candidate !== socket) return;
+              socket = null;
+              resetFrame();
+              if (!desired) return;
+              postMessage({ type: 'close' });
+              clearTimeout(reconnectTimer);
+              reconnectTimer = setTimeout(connect, 300);
+            };
+          }
+
+          onmessage = event => {
+            const message = event.data;
+            if (message.type === 'start') {
+              desired = true;
+              endpoint = message.endpoint;
+              connect();
+            } else if (message.type === 'stop') {
+              desired = false;
+              clearTimeout(reconnectTimer);
+              resetFrame();
+              if (socket) socket.close(1000, 'user disconnect');
+              socket = null;
+            }
+          };
+        `;
+        videoWorker = new Worker(URL.createObjectURL(
+          new Blob([source], { type: 'text/javascript' })));
+        videoWorker.onmessage = event => {
+          if (event.data.type === 'frame') {
+            lastVideoPacketAt = Date.now();
+            renderVideoFrame(new Uint8Array(event.data.data));
+          } else if (event.data.type === 'open') {
+            lastVideoPacketAt = Date.now();
+          }
+        };
+      }
+      const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
+      videoWorker.postMessage({
+        type: 'start',
+        endpoint: `${protocol}://${location.hostname}:81/ws/video`
+      });
+    }
+
+    async function enterLandscape() {
+      let fullscreenReady = Boolean(document.fullscreenElement);
+      let orientationReady = matchMedia('(orientation: landscape)').matches;
+      let orientationLocked = false;
+
+      /* Keep the two attempts independent. Some Android browsers allow an
+       * orientation lock without fullscreen, while others require fullscreen
+       * and a user gesture. iOS may reject either call. */
+      if (!fullscreenReady && document.documentElement.requestFullscreen) {
+        try {
+          await document.documentElement.requestFullscreen();
+          fullscreenReady = true;
+        } catch (error) {
+          fullscreenReady = false;
+        }
+      }
+
+      if (screen.orientation && screen.orientation.lock) {
+        try {
+          await screen.orientation.lock('landscape');
+          orientationReady = true;
+          orientationLocked = true;
+        } catch (error) {
+          orientationReady = matchMedia('(orientation: landscape)').matches;
+        }
+      }
+
+      if (!orientationReady) {
+        landscapeHint.textContent = '当前浏览器无法锁定方向，请直接横放手机';
+      }
+      return orientationLocked;
+    }
+
+    function handleOrientationChange(isLandscape) {
+      if (isLandscape) {
+        landscapeHint.textContent = '已进入横屏控制';
+      } else {
+        landscapeHint.textContent = '请横放手机；若无法旋转，请开启手机自动旋转';
+      }
+    }
+
+    function toggleOrientation() {
+      enterLandscape();
+    }
+
+    function sendControl(immediate = false) {
+      if (!desiredConnected || !controlConnected || !controlWorker) return;
+      const controlOffset = 0;
+      const buffer = new ArrayBuffer(15);
+      const data = new DataView(buffer);
+      const posHold = currentFlightMode === 0x02;
+      const commandedRoll = Math.max(-15, Math.min(15, state.roll + (posHold ? 0 : Number(rollTrim.value))));
+      const commandedPitch = Math.max(-15, Math.min(15, state.pitch + (posHold ? 0 : Number(pitchTrim.value))));
+      data.setFloat32(controlOffset + 0, commandedRoll, true);
+      data.setFloat32(controlOffset + 4, commandedPitch, true);
+      data.setFloat32(controlOffset + 8, state.yaw, true);
+      const altitudeMode = currentFlightMode === 0x01 || currentFlightMode === 0x02;
+      const throttleUnlocked = !altitudeMode || altitudeHoldUnlocked;
+      const throttle = enabled && throttleUnlocked &&
+        state.throttle >= THROTTLE_SEND_MIN ? state.throttle : 0;
+      data.setUint16(controlOffset + 12, throttle, true);
+      data.setUint8(controlOffset + 14, (carefree.checked ? 1 : 0) |
+        (posHold && highSpeed.checked ? 0x10 : 0) | flightButtons);
+      controlWorker.postMessage({
+        type: 'control', data: buffer, active: enabled, immediate
+      }, [buffer]);
+    }
+
+    function pauseControl() {
+      clearYawSwitches();
+      if (controlWorker) {
+        controlWorker.postMessage({ type: 'active', active: false });
+      }
+    }
+
+    function emergencyStop(message) {
+      enabled = false;
+      clearYawSwitches();
+      state.throttle = state.yaw = state.roll = state.pitch = 0;
+      setThrottleKnob(1);
+      document.getElementById('rightKnob').style.transform = 'translate(0,0)';
+      status.textContent = message;
+    }
+
+    let videoReconnectTimer = null;
+
+    function showVideoMessage(message) {
+      const text = document.createElement('span');
+      text.id = 'videoText';
+      text.textContent = message;
+      document.getElementById('video').replaceChildren(text);
+    }
+
+    function scheduleVideoReconnect(delay = 800) {
+      clearTimeout(videoReconnectTimer);
+      if (desiredConnected) videoReconnectTimer = setTimeout(connectVideo, delay);
+    }
+
+    function connectVideo() {
+      connectVideoWs();
+      return;
+      if (!desiredConnected) return;
+      clearTimeout(videoReconnectTimer);
+      fetch('/api/camera', { cache: 'no-store' })
+        .then(response => response.text())
+        .then(value => {
+          if (value === '1') {
+            const image = new Image();
+            image.alt = 'Tiny Drone video';
+            image.onerror = () => {
+              if (!image.isConnected) return;
+              image.removeAttribute('src');
+              showVideoMessage('视频重新连接中…');
+              scheduleVideoReconnect();
+            };
+            image.src = `${location.protocol}//${location.hostname}:81/stream?t=${Date.now()}`;
+            document.getElementById('video').replaceChildren(image);
+          } else {
+            showVideoMessage('暂无视频信号');
+            scheduleVideoReconnect(2000);
+          }
+        })
+        .catch(() => {
+          showVideoMessage('视频重新连接中…');
+          scheduleVideoReconnect(2000);
+        });
+    }
+
+
+
+    function startConnections() {
+      desiredConnected = true;
+      document.body.classList.add('control-connected');
+      enabled = false;
+      clearYawSwitches();
+      state.throttle = state.yaw = state.roll = state.pitch = 0;
+      settingsButton.disabled = true;
+      connectToggle.textContent = '断开';
+      connectToggle.classList.add('connected');
+      status.textContent = '正在连接…';
+      lastRenderedFrameAt = 0;
+      currentFlightMode = 0;
+      altitudeHoldUnlocked = false;
+      ridAirborneObserved = false;
+      lastRidOperationState = 0;
+      posHoldPhase = 0;
+      posHoldReady = false;
+      telemetryAt = 0;
+      flightButtons = 0;
+      updateFlightButtons();
+      resetDisplayedFps(true);
+      connectControl();
+      startBatteryPolling();
+      cameraAvailable = true;
+      connectVideo();
+    }
+
+    function stopConnections() {
+      // Disconnect both WebSockets without manufacturing a zero-throttle
+      // command. Only the control WS feeds Commander setpoints, so once it is
+      // closed the existing Commander WDT naturally expires. The video WS has
+      // no effect on the control timestamp.
+      enabled = false;
+      settingsButton.disabled = false;
+      status.textContent = '已断开';
+      desiredConnected = false;
+      document.body.classList.remove('control-connected');
+      flightButtons = 0;
+      clearTimeout(flightActionTimer);
+      updateFlightButtons();
+      clearTimeout(videoReconnectTimer);
+      clearInterval(batteryPollTimer);
+      batteryPollTimer = null;
+      resetDisplayedFps(false);
+      if (controlWorker) controlWorker.postMessage({ type: 'stop' });
+      if (videoWorker) videoWorker.postMessage({ type: 'stop' });
+      const videoImage = document.querySelector('#video img');
+      if (videoImage) videoImage.src = '';
+      controlConnected = false;
+      wsVideoFrame = null;
+      wsVideoReceived = 0;
+      wsVideoImage = null;
+      pendingVideoFrame = null;
+      videoDecodeBusy = false;
+      if (activeVideoUrl) URL.revokeObjectURL(activeVideoUrl);
+      activeVideoUrl = null;
+      batteryValue.textContent = '--V';
+      relativeHeight.textContent = 'H:--m';
+      ridOperationStatus.textContent = '运行状态-未报告';
+      altitudeHoldStatus.hidden = true;
+      battery.classList.remove('low', 'critical');
+      connectToggle.textContent = '连接';
+      connectToggle.classList.remove('connected');
+      showVideoMessage('点击连接开始图传');
+    }
+
+    connectToggle.addEventListener('click', () => {
+      if (desiredConnected) stopConnections();
+      else {
+        enterLandscape();
+        startConnections();
+      }
+    });
+
+    const settingsPanel = document.getElementById('settingsPanel');
+    async function loadFirmwareVersion() {
+      try {
+        const response = await fetch('/api/features', { cache: 'no-store' });
+        if (!response.ok) return;
+        const features = await response.json();
+        if (typeof features.version === 'string' && features.version.length > 0) {
+          firmwareVersion.textContent = features.version;
+        }
+      } catch (_) { /* Keep the placeholder when the endpoint is unavailable. */ }
+    }
+    settingsButton.addEventListener('click', () => {
+      settingsPanel.classList.add('open');
+      loadFirmwareVersion();
+    });
+    document.getElementById('closeSettings').addEventListener('click', () => {
+      settingsPanel.classList.remove('open');
+    });
+    rollTrim.addEventListener('input', () => { updateTrimLabels(); saveSettings(); });
+    pitchTrim.addEventListener('input', () => { updateTrimLabels(); saveSettings(); });
+    cameraFlip.addEventListener('change', () => {
+      applyCameraFlip();
+      saveSettings();
+    });
+    cameraFlipSetting.addEventListener('change', () => {
+      cameraFlip.checked = cameraFlipSetting.checked;
+      applyCameraFlip();
+      saveSettings();
+    });
+    cameraFlipHorizontal.addEventListener('change', () => {
+      applyCameraFlip();
+      saveSettings();
+    });
+    cameraFlipVertical.addEventListener('change', () => {
+      applyCameraFlip();
+      saveSettings();
+    });
+    carefree.addEventListener('change', () => {
+      if (carefree.checked) yawLocked.checked = false;
+      clearYawSwitches();
+      updateYawSwitches();
+      sendControl(true);
+      saveSettings();
+    });
+    yawLocked.addEventListener('change', () => {
+      if (yawLocked.checked) carefree.checked = false;
+      updateYawSwitches();
+      sendControl(true);
+      saveSettings();
+    });
+    highSpeed.addEventListener('change', () => {
+      speedModeText.textContent = highSpeed.checked ? '高速模式' : '低速模式';
+      sendControl(true);
+    });
+    document.getElementById('resetSettings').addEventListener('click', () => {
+      applySettings(DEFAULT_SETTINGS);
+      highSpeed.checked = false;
+      speedModeText.textContent = '低速模式';
+      saveSettings();
+      clearYawSwitches();
+      sendControl(true);
+      status.textContent = '设置已恢复默认值';
+    });
+    document.getElementById('firmwareUpdate').addEventListener('click', () => {
+      emergencyStop('已停止控制');
+        sendControl(true);
+      setTimeout(() => { location.href = '/update'; }, 60);
+    });
+    document.getElementById('enterLandscape').addEventListener('click', enterLandscape);
+    document.getElementById('orientationToggle').addEventListener('click', toggleOrientation);
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        enabled = false;
+        flightButtons = 0;
+        clearTimeout(flightActionTimer);
+        pauseControl();
+        status.textContent = '页面已隐藏，等待飞控超时保护';
+      }
+    });
+    window.addEventListener('pagehide', () => {
+      // Do not synthesize a zero-throttle command during an automatic page
+      // lifecycle event. Stop producing packets and let Commander WDT use the
+      // last valid setpoint timestamp.
+      enabled = false;
+      flightButtons = 0;
+      clearTimeout(flightActionTimer);
+      pauseControl();
+      desiredConnected = false;
+    });
+    loadSettings();
+    bindStick('leftStick', 'leftKnob', true);
+    bindStick('rightStick', 'rightKnob', false);
+    bindYawSwitch('yawLeft', -1);
+    bindYawSwitch('yawRight', 1);
+    const landscapeQuery = matchMedia('(orientation: landscape)');
+    if (landscapeQuery.addEventListener) {
+      landscapeQuery.addEventListener('change', event => handleOrientationChange(event.matches));
+    } else {
+      landscapeQuery.addListener(event => handleOrientationChange(event.matches));
+    }
+    handleOrientationChange(landscapeQuery.matches);
+    setInterval(() => {
+      updateFlightButtons();
+    }, 500);
+    setInterval(() => {
+    }, 500);
+  </script>
+</body>
+</html>

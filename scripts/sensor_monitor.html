@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>无人机传感器监视器</title>
+<style>
+:root{color-scheme:dark;font:15px/1.5 "Microsoft YaHei",sans-serif;background:#10151d;color:#e7edf5}*{box-sizing:border-box}body{margin:0 auto;padding:22px;max-width:1280px}h1{font-size:26px;margin:0 0 6px}h2{font-size:19px;margin:0 0 3px}p{margin:8px 0}.sub,.hint,.meta{color:#aab7c8}.sub{margin-bottom:17px}.hint,.meta{font-size:13px}.status{padding:13px 16px;border:1px solid #344354;border-radius:10px;background:#1b2633;margin-bottom:16px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:10px}.card,.panel{padding:16px;border:1px solid #303b49;border-radius:10px;background:#19212b}.panel{margin:14px 0}.label{font-size:13px;color:#aab7c8}.value{font:600 25px/1.5 ui-monospace,Consolas,monospace}.small{font-size:17px}.ok{color:#62e6a4}.bad{color:#ff8585}.warn{color:#ffd28a}.sensor-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}.sensor-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,440px),1fr));gap:14px}.sensor-grid .panel{margin:0}.sensor-note{font-size:13px;color:#ffd28a;margin:6px 0 10px;min-height:20px}table{border-collapse:collapse;width:100%;font-size:14px}th,td{text-align:left;padding:7px 5px;border-bottom:1px solid #2b3745;vertical-align:top}th{color:#aab7c8;font-weight:400}td:last-child{font-family:ui-monospace,Consolas,monospace;font-variant-numeric:tabular-nums}tbody tr:last-child>*{border:0}.pair{color:#aab7c8;font-size:12px}.plot-head{display:flex;align-items:center;justify-content:space-between;gap:12px}canvas{display:block;width:100%;height:240px;background:#141b24;border:1px solid #303b49;border-radius:8px;margin:12px 0}button{background:#283748;color:#e7edf5;border:1px solid #45566a;border-radius:7px;padding:7px 12px;cursor:pointer}#stamp{font-size:13px;color:#aab7c8}.stale{opacity:.65}.tag{font-size:12px;background:#293649;padding:2px 7px;border-radius:4px;margin-left:5px}.legend-dx{color:#62e6a4}.legend-dy{color:#69a9ff}@media(max-width:600px){body{padding:12px}.value{font-size:22px}.small{font-size:15px}th,td{padding:7px 2px}h1{font-size:23px}.sensor-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<h1>无人机传感器监视器</h1>
+<div class="sub">自动读取已暂时注释停用，保留诊断代码；未收到数据时显示「—」。</div>
+<div id="status" class="status" role="status" aria-live="polite">监视器已暂时禁用</div>
+<div class="sensor-head"><h2>融合估算 <span class="tag">飞控计算结果</span></h2><span id="stamp">尚未收到数据</span></div>
+<p class="hint">下面的高度、速度和姿态由多个传感器融合得到；各传感器的独立读数在下方。</p>
+<div class="grid">
+<div class="card"><div class="label">机身前向速度 m/s</div><div id="forward" data-reading class="value">—</div></div>
+<div class="card"><div class="label">机身左向速度 m/s</div><div id="left" data-reading class="value">—</div></div>
+<div class="card"><div class="label">融合高度 / 测距 m</div><div id="height" data-reading class="value small">—</div></div>
+<div class="card"><div class="label">姿态 横滚 / 俯仰 / 航向 °</div><div id="att" data-reading class="value small">—</div></div>
+</div>
+
+<section class="panel" id="flowPanel">
+<div class="sensor-head"><h2>PMW3901 光流 <span class="tag">图像位移计数</span></h2><span id="flowState" class="meta">等待数据</span></div>
+<p id="flowNote" class="sensor-note"></p>
+<div class="grid">
+<div class="card"><div class="label">原始 dx / dy counts</div><div id="flowRaw" data-reading class="value small">—</div></div>
+<div class="card"><div class="label">安装轴映射后 dx / dy counts</div><div id="flowMapped" data-reading class="value small">—</div></div>
+<div class="card"><div class="label">采样间隔 ms / 图像质量 SQUAL</div><div id="flowDtQuality" data-reading class="value small">—</div></div>
+<div class="card"><div class="label">motion / 融合接收状态</div><div id="flowMotion" data-reading class="value small">—</div></div>
+</div>
+<table><tbody>
+<tr><th>快门 shutter</th><td id="flowShutter" data-reading>—</td><th>图像总和 rawDataSum</th><td id="flowSum" data-reading>—</td></tr>
+<tr><th>图像最大值 maxRawData</th><td id="flowMax" data-reading>—</td><th>图像最小值 minRawData</th><td id="flowMin" data-reading>—</td></tr>
+<tr><th>距最新帧 ms</th><td id="flowAge" data-reading>—</td><th>距最近接收 ms</th><td id="flowAcceptedAge" data-reading>—</td></tr>
+<tr><th>累计读取帧</th><td id="flowSamples" data-reading>—</td><th>累计融合接收帧</th><td id="flowAcceptedSamples" data-reading>—</td></tr>
+<tr><th>观测寄存器 observation</th><td id="flowObservation" data-reading>—</td><th></th><td></td></tr>
+</tbody></table>
+<div class="plot-head"><p><span class="legend-dx">映射后 dx</span> / <span class="legend-dy">映射后 dy</span> <span class="hint">最近约 18 秒；断连或旧帧留空</span></p><button id="clearPlot" type="button">清空曲线</button></div>
+<canvas id="plot" width="1150" height="240" aria-label="光流 dx dy 变化曲线"></canvas>
+<p class="hint">dx/dy 是两帧图像间的位移计数，不是米或 m/s。motion 是帧状态寄存器，SQUAL 是图像特征质量；单看质量数值不能证明速度正确。</p>
+</section>
+
+<div class="sensor-grid">
+<section class="panel" id="imuPanel">
+<div class="sensor-head"><h2>IMU 加速度计 / 陀螺仪</h2><span id="imuState" class="meta">等待数据</span></div>
+<p id="imuNote" class="sensor-note"></p>
+<table><thead><tr><th>项目</th><th>X / Y / Z</th></tr></thead><tbody>
+<tr><th>原始加速度 counts</th><td id="imuAccRaw" data-reading>—</td></tr>
+<tr><th>原始角速度 counts</th><td id="imuGyroRaw" data-reading>—</td></tr>
+<tr><th>驱动加速度 g</th><td id="imuAccG" data-reading>—</td></tr>
+<tr><th>驱动角速度 °/s</th><td id="imuGyroDps" data-reading>—</td></tr>
+<tr><th>温度原始值 / °C</th><td id="imuTemp" data-reading>—</td></tr>
+<tr><th>驱动校准状态</th><td id="imuCalibrated" data-reading>—</td></tr>
+<tr><th>累计采样次数</th><td id="imuSamples" data-reading>—</td></tr>
+</tbody></table>
+<p class="hint">原始 counts 使用芯片轴；驱动 g / °/s 使用安装映射、校准和滤波后的机身轴，不能逐轴直接比较。加速度未扣除重力，静止时总量通常约为 1 g，各轴不应全部为零。</p>
+</section>
+<section class="panel" id="tofPanel">
+<div class="sensor-head"><h2>VL53L1X 激光测距</h2><span id="tofState" class="meta">等待数据</span></div>
+<p id="tofNote" class="sensor-note"></p>
+<table><tbody>
+<tr><th>传感器距离 mm</th><td id="tofRange" data-reading>—</td></tr>
+<tr><th>测量有效 / 读取成功</th><td id="tofValid" data-reading>—</td></tr>
+<tr><th>测距状态码</th><td id="tofStatus" data-reading>—</td></tr>
+<tr><th>信号率 MCPS</th><td id="tofSignal" data-reading>—</td></tr>
+<tr><th>环境光率 MCPS</th><td id="tofAmbient" data-reading>—</td></tr>
+<tr><th>距离标准差 sigma mm</th><td id="tofSigma" data-reading>—</td></tr>
+</tbody></table>
+<p class="hint">这是传感器到下方物体的距离，没有做机身倾斜修正。读取失败时不显示测量值；读取成功但测量无效时，保留原始读数并标记。</p>
+</section>
+<section class="panel" id="barometerPanel">
+<div class="sensor-head"><h2>气压计</h2><span id="barometerState" class="meta">等待数据</span></div>
+<p id="barometerNote" class="sensor-note"></p>
+<table><tbody>
+<tr><th>原始气压 / 温度 ADC counts</th><td id="barometerRaw" data-reading>—</td></tr>
+<tr><th>气压 hPa</th><td id="barometerPressure" data-reading>—</td></tr>
+<tr><th>温度 °C</th><td id="barometerTemp" data-reading>—</td></tr>
+<tr><th>气压换算海拔 m</th><td id="barometerAltitude" data-reading>—</td></tr>
+<tr><th>累计采样次数</th><td id="barometerSamples" data-reading>—</td></tr>
+</tbody></table>
+<p class="hint">这里是气压计独立读数。气压换算海拔受环境气压影响，不代表飞机距地高度。</p>
+</section>
+<section class="panel" id="magnetometerPanel">
+<div class="sensor-head"><h2>磁力计</h2><span id="magnetometerState" class="meta">等待数据</span></div>
+<p id="magnetometerNote" class="sensor-note"></p>
+<table><thead><tr><th>项目</th><th>X / Y / Z</th></tr></thead><tbody>
+<tr><th>原始磁场 counts</th><td id="magnetometerRaw" data-reading>—</td></tr>
+<tr><th>驱动磁场 gauss</th><td id="magnetometerGauss" data-reading>—</td></tr>
+<tr><th>累计采样次数</th><td id="magnetometerSamples" data-reading>—</td></tr>
+</tbody></table>
+<p class="hint">未安装或未启用时会明确标记。电机、电源线和附近金属会影响磁场读数。</p>
+</section>
+</div>
+<p class="hint">排查静止速度偏差时，先拆桨并保持机身静止、底部无遮挡。对照光流原始位移、IMU 和测距，再看上方融合速度；停桨时的数据不能代替飞行中的验证。</p>
+
+<script>
+'use strict';
+const SensorMonitor = (() => {
+  const $ = id => document.getElementById(id);
+  const numeric = value => typeof value === 'number' && Number.isFinite(value);
+  const fmt = (value, digits = 3) => numeric(value) ? value.toFixed(digits) : '—';
+  const vector = (value, digits = 3) => [0, 1, 2].map(i => fmt(Array.isArray(value) ? value[i] : null, digits)).join(' / ');
+  const pair = (a, b, digits = 0) => fmt(a, digits) + ' / ' + fmt(b, digits);
+  const yesNo = (value, yes = '是', no = '否') => value === true ? yes : value === false ? no : '—';
+  const put = (id, value) => { $(id).textContent = value; };
+  const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+  const historyData = [];
+  const maxPoints = 180;
+  let timer = null, active = false, inFlight = false, lastSuccess = null;
+
+  function sensorState(name, data) {
+    const panel = $(name + 'Panel'), state = $(name + 'State');
+    if (!object(data)) {
+      put(name + 'Note', '当前固件未提供，需烧录新增接口。');
+      state.textContent = '无数据'; state.className = 'meta warn';
+      panel.classList.add('stale');
+      return false;
+    }
+    panel.classList.toggle('stale', data.fresh !== true);
+    let status = '状态未知';
+    if (data.present === false) status = '未安装 / 未启用';
+    else if (data.seen === false) status = '尚未收到采样';
+    else if (data.fresh === true) status = '采样新鲜';
+    else if (data.fresh === false) status = '采样已过期';
+    state.textContent = status + ' · 帧龄 ' + fmt(data.ageMs, 0) + ' ms';
+    state.className = 'meta ' + (data.fresh === true ? 'ok' : 'warn');
+    put(name + 'Note', data.present === false ? '此传感器当前没有启用，以下数值不作有效测量。' : data.fresh === false ? '以下为最后一次读数，当前已过期。' : '');
+    return data.present !== false && data.seen !== false;
+  }
+
+  function draw() {
+    const canvas = $('plot'), ctx = canvas.getContext('2d'), w = canvas.width, h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+    ctx.strokeStyle = '#354252'; ctx.lineWidth = 1; ctx.beginPath();
+    ctx.moveTo(0, h / 2); ctx.lineTo(w, h / 2); ctx.stroke();
+    let peak = 1;
+    for (const p of historyData) for (const key of ['dx', 'dy']) if (numeric(p[key])) peak = Math.max(peak, Math.abs(p[key]));
+    peak *= 1.15;
+    for (const [key, color] of [['dx', '#62e6a4'], ['dy', '#69a9ff']]) {
+      ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.beginPath(); let joined = false;
+      historyData.forEach((p, i) => {
+        if (!numeric(p[key])) { joined = false; return; }
+        const x = i * w / (maxPoints - 1), y = h / 2 - p[key] / peak * h * .43;
+        if (joined) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+        joined = true;
+      });
+      ctx.stroke();
+    }
+    ctx.fillStyle = '#aab7c8'; ctx.font = '13px sans-serif';
+    ctx.fillText('+' + peak.toFixed(0) + ' counts', 8, 15); ctx.fillText('-' + peak.toFixed(0), 8, h - 7);
+  }
+
+  function appendPoint(dx = null, dy = null) {
+    historyData.push({dx, dy});
+    if (historyData.length > maxPoints) historyData.shift();
+    draw();
+  }
+
+  function clearReadings() {
+    document.querySelectorAll('[data-reading]').forEach(node => { node.textContent = '—'; });
+  }
+
+  function render(data) {
+    if (!object(data)) throw Error('诊断数据格式无效');
+    clearReadings();
+    const f = object(data.flow) ? data.flow : {};
+    const v = Array.isArray(data.velocity) ? data.velocity : [], a = Array.isArray(data.attitude) ? data.attitude : [];
+    if (data.stateValid !== false && [v[0], v[1], a[2]].every(numeric)) {
+      const yaw = a[2] * Math.PI / 180;
+      put('forward', fmt(Math.cos(yaw) * v[0] + Math.sin(yaw) * v[1]));
+      put('left', fmt(-Math.sin(yaw) * v[0] + Math.cos(yaw) * v[1]));
+    }
+    put('height', fmt(data.stateValid !== false && Array.isArray(data.position) ? data.position[2] : null) + ' / ' + fmt(data.rangeFresh === false ? null : data.rangeM));
+    put('att', data.stateValid === false ? '—' : vector(a, 1));
+    put('status', '已连接 · 飞控状态 ' + yesNo(data.stateValid, '有效', '无效') + ' · Kalman ' + yesNo(data.kalman, '已启用', '未启用') + ' · 测距 ' + yesNo(data.rangeFresh, '新鲜', '已过期'));
+    $('status').className = 'status ' + (data.stateValid === false ? 'warn' : 'ok');
+    lastSuccess = new Date();
+    put('stamp', '最近收到 ' + lastSuccess.toLocaleTimeString());
+
+    sensorState('flow', f);
+    const extendedFlow = ['rawDx', 'rawDy', 'rawDataSum', 'maxRawData', 'minRawData'].every(key => Object.prototype.hasOwnProperty.call(f, key));
+    if (!extendedFlow) put('flowNote', '当前固件未提供光流原始帧扩展，需烧录新增接口；下方保留已有光流读数。');
+    if (f.seen !== false) {
+      put('flowRaw', pair(f.rawDx, f.rawDy)); put('flowMapped', pair(f.dx, f.dy));
+      put('flowDtQuality', fmt(f.dtMs, 2) + ' / ' + fmt(f.squal, 0));
+      put('flowMotion', (numeric(f.motion) ? '0x' + f.motion.toString(16).padStart(2, '0').toUpperCase() : '—') + ' / ' + yesNo(f.accepted, '已接收', '未接收'));
+      for (const [id, key] of [['Shutter', 'shutter'], ['Sum', 'rawDataSum'], ['Max', 'maxRawData'], ['Min', 'minRawData'], ['Age', 'ageMs'], ['AcceptedAge', 'acceptedAgeMs'], ['Samples', 'samples'], ['AcceptedSamples', 'acceptedSamples'], ['Observation', 'observation']]) put('flow' + id, fmt(f[key], 0));
+    }
+    appendPoint(f.fresh === true && numeric(f.dx) ? f.dx : null, f.fresh === true && numeric(f.dy) ? f.dy : null);
+    const sensors = object(data.sensors) ? data.sensors : {};
+    const tof = sensors.tof;
+    // 测距使用独立后端，不受 IMU 后端 available 标志控制。
+    if (sensorState('tof', tof)) {
+      put('tofValid', (tof.readOk === false ? '—' : yesNo(tof.valid, '有效', '无效')) + ' / ' + yesNo(tof.readOk, '成功', '失败'));
+      put('tofStatus', fmt(tof.status, 0));
+      if (tof.readOk === false) {
+        put('tofNote', '本次读取失败，测量值已清空。');
+      } else {
+        put('tofRange', fmt(tof.rangeMm, 0)); put('tofSignal', fmt(tof.signalRateMcps, 3));
+        put('tofAmbient', fmt(tof.ambientRateMcps, 3)); put('tofSigma', fmt(tof.sigmaMm, 3));
+        if (tof.valid === false) put('tofNote', '本次测距无效，以下为原始读数，不能作为有效高度。');
+      }
+    }
+    if (sensors.available === false) {
+      for (const name of ['imu', 'barometer', 'magnetometer']) {
+        sensorState(name, null); put(name + 'Note', '诊断数据暂不可用，等待下一次采样。');
+      }
+      return;
+    }
+    const imu = sensors.imu, barometer = sensors.barometer, magnetometer = sensors.magnetometer;
+    if (sensorState('imu', imu)) {
+      put('imuAccRaw', vector(imu.accRaw, 0)); put('imuGyroRaw', vector(imu.gyroRaw, 0));
+      put('imuAccG', vector(imu.accG, 4)); put('imuGyroDps', vector(imu.gyroDps, 3));
+      put('imuTemp', fmt(imu.temperatureRaw, 0) + ' / ' + fmt(imu.temperatureC, 2));
+      put('imuCalibrated', yesNo(imu.calibrated, '已校准', '未校准'));
+      put('imuSamples', fmt(imu.samples, 0));
+    }
+    if (sensorState('barometer', barometer)) {
+      put('barometerRaw', pair(barometer.pressureRaw, barometer.temperatureRaw));
+      put('barometerPressure', fmt(barometer.pressureHpa, 3));
+      put('barometerTemp', fmt(barometer.temperatureC, 2)); put('barometerAltitude', fmt(barometer.altitudeM, 2));
+      put('barometerSamples', fmt(barometer.samples, 0));
+    }
+    if (sensorState('magnetometer', magnetometer)) {
+      put('magnetometerRaw', vector(magnetometer.raw, 0)); put('magnetometerGauss', vector(magnetometer.gauss, 4));
+      put('magnetometerSamples', fmt(magnetometer.samples, 0));
+    }
+  }
+
+  function disconnected(message) {
+    clearReadings();
+    put('status', '未连接 · ' + message + '。请连接无人机 Wi-Fi，页面会自动重试。');
+    $('status').className = 'status bad';
+    put('stamp', lastSuccess ? '最后成功 ' + lastSuccess.toLocaleTimeString() + '（已断连）' : '尚未收到数据');
+    for (const name of ['flow', 'imu', 'tof', 'barometer', 'magnetometer']) {
+      put(name + 'State', '无实时数据'); $(name + 'State').className = 'meta warn';
+      put(name + 'Note', '连接中断，已清空读数。'); $(name + 'Panel').classList.add('stale');
+    }
+    appendPoint();
+  }
+
+  async function poll() {
+    if (!active || inFlight) return;
+    inFlight = true;
+    const before = performance.now(), controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4000);
+    try {
+      const response = await fetch('/snapshot', {cache: 'no-store', signal: controller.signal});
+      const data = await response.json();
+      if (!response.ok || data.error) throw Error(data.error || 'HTTP ' + response.status);
+      render(data);
+    } catch (error) {
+      disconnected(error.name === 'AbortError' ? '读取超时' : String(error.message));
+    } finally {
+      inFlight = false;
+      clearTimeout(timeout);
+      // 上一次请求结束后再启动下一次，弱连接时不会堆积请求。
+      if (active) timer = setTimeout(poll, Math.max(0, 100 - (performance.now() - before)));
+    }
+  }
+
+  function start() { if (!active) { active = true; poll(); } }
+  function stop() { active = false; clearTimeout(timer); }
+  $('clearPlot').addEventListener('click', () => { historyData.length = 0; draw(); });
+  window.addEventListener('pagehide', stop);
+  // 暂时停用自动读取；恢复时同时取消下方 SensorMonitor.start() 的注释。
+  // window.addEventListener('pageshow', start);
+  return {render, disconnected, start, stop, fmt};
+})();
+// SensorMonitor.start();
+</script>
+</body>
+</html>

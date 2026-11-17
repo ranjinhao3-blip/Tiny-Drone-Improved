@@ -1,0 +1,8 @@
+# Preserve binary assets when Git converts Windows line endings.
+*.bin binary
+*.pdf binary
+*.apk binary
+*.epro2 binary
+*.png binary
+*.jpg binary
+*.jpeg binary
